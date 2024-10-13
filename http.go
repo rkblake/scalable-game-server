@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
-const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+const letters = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
-var code_map map[string]string
+var code_map = make(map[string]string)
 
 func GenerateCode() string {
 	code := make([]byte, 5)
@@ -28,13 +29,27 @@ func CompareMethod(w http.ResponseWriter, method1 string, method2 string) bool {
 	return true
 }
 
+func CheckParam(w http.ResponseWriter, r *http.Request, param string) string {
+	value := r.URL.Query().Get(param)
+	if value == "" {
+		http.Error(w, "Incorrect query parameters", http.StatusUnauthorized)
+		return ""
+	}
+	return value
+}
+
 func CreateMatch(w http.ResponseWriter, r *http.Request) {
-	fmt.Print("test")
 	if !CompareMethod(w, r.Method, http.MethodPost) {
 		return
 	}
 
-	id, err := StartContainer()
+	max_players, err := strconv.Atoi(CheckParam(w, r, "max_players"))
+	private, err := strconv.ParseBool(CheckParam(w, r, "private"))
+	if err != nil {
+		http.Error(w, "Incorrect query parameters", http.StatusUnprocessableEntity)
+	}
+
+	id, err := StartContainer(max_players, private)
 	if err != nil {
 		http.Error(w, "Failed to start container", http.StatusInternalServerError)
 		return
@@ -50,7 +65,7 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	}
 	code_map[code] = id
 
-	json := fmt.Sprintf("{\"code\":\"%s\"}", code)
+	json := fmt.Sprintf("{\"code\":\"%s\"}\n", code)
 	w.Write([]byte(json))
 }
 
@@ -59,8 +74,19 @@ func JoinMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ip := strings.Split(r.RemoteAddr, ":")[0]
-	// AddForwardRule(ip, id)
+	code := CheckParam(w, r, "code")
+	if _, ok := code_map[code]; ok {
+		http.Error(w, "Invalid code", http.StatusInternalServerError)
+		return
+	}
+
+	ip := strings.Split(r.RemoteAddr, ":")[0]
+	AddForwardRule(ip, code_map[code])
+
+	if val, ok := container_map[code_map[code]]; ok {
+		val.num_players += 1
+		container_map[code_map[code]] = val
+	}
 }
 
 func LeaveMatch(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +94,17 @@ func LeaveMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	code := r.URL.Query().Get("code")
+
+	if val, ok := container_map[code_map[code]]; ok {
+		val.num_players -= 1
+		if val.num_players == 0 {
+			StopContainer(code_map[code])
+			delete(code_map, code)
+			return
+		}
+		container_map[code_map[code]] = val
+	}
 }
 
 func GetMatches(w http.ResponseWriter, r *http.Request) {

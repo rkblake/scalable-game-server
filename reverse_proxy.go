@@ -3,11 +3,19 @@ package main
 import (
 	"bufio"
 	"net"
+	"strings"
+	// "strings"
 )
 
-var tcp_map map[*net.Conn]net.Conn
+// var tcp_map map[*net.Conn]net.Conn
 var udp_map map[*net.UDPAddr]net.Conn
-var ip_map map[*net.IP]net.IP
+
+type container_conn struct {
+	tcp net.Conn
+	udp net.UDPConn
+}
+
+var ip_map = make(map[*net.IP]container_conn)
 
 func ForwardTCP() error {
 	// start tcp and upd listeners
@@ -33,7 +41,9 @@ func ForwardTCP() error {
 					// fmt.Println(err)
 					return
 				}
-				tcp_map[&conn].Write(data)
+				// tcp_map[&conn].Write(data)
+				ip := net.ParseIP(strings.Split(conn.RemoteAddr().String(), ":")[0])
+				ip_map[&ip].tcp.Write(data)
 			}
 		}(conn)
 	}
@@ -60,14 +70,16 @@ func ForwardUDP() error {
 		}
 		// tcp_map[addr.String()].Write(buf[0:])
 		udp_map[addr].Write(buf[0:])
+		// ip_map[&addr.IP].udp.WriteToUDP([]byte("")])
+
 	}
 
 	return nil
 }
 
 func AddForwardRule(ip string, id string) {
-	parsed_ip := net.ParseIP(ip)
-	ip_map[&parsed_ip] = container_map[id]
+	// parsed_ip := net.ParseIP(ip)
+	// ip_map[&parsed_ip] =  // TODO: start conn with container
 }
 
 func RemoveForwardRule(ip string) {

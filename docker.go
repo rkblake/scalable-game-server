@@ -18,18 +18,28 @@ const MAX_CONTAINERS = 10 // TODO: get from env var
 
 var num_containers = 0
 
-var container_map = make(map[string]net.IP)
+type container_data struct {
+	ip          net.IP
+	num_players int
+	max_players int
+	private     bool
+	in_progress bool
+}
 
-func StartContainer() (string, error) {
+var container_map = make(map[string]container_data)
+
+func StartContainer(max_players int, private bool) (string, error) {
 	if num_containers >= MAX_CONTAINERS {
 		return "", errors.New("max containers")
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: "alpine",
+		Image: IMAGE,
 		Cmd:   []string{"sleep", "30"},
 		Tty:   false,
-	}, nil, nil, nil, "")
+	}, &container.HostConfig{
+		AutoRemove: true,
+	}, nil, nil, "")
 	if err != nil {
 		// fmt.Fprintln(os.Stderr, "[Server] ERROR: failed to create container")
 		// fmt.Fprintln(os.Stderr, err)
@@ -47,7 +57,13 @@ func StartContainer() (string, error) {
 		return "", err
 	}
 
-	container_map[resp.ID] = net.ParseIP(json.NetworkSettings.IPAddress)
+	container_map[resp.ID] = container_data{
+		ip:          net.ParseIP(json.NetworkSettings.IPAddress),
+		num_players: 1,
+		max_players: max_players,
+		private:     private,
+		in_progress: false,
+	}
 
 	num_containers += 1
 	return resp.ID, nil

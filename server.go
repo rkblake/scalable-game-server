@@ -65,57 +65,16 @@ var ctx = context.Background()
 
 func main() {
 	fmt.Println("[Server] Starting server...")
-	ctx = context.Background()
 
 	// connect to docker
 	err := ConnectDocker()
 	if err != nil {
 		panic(err)
 	}
-	_, err = StartContainer()
-	if err != nil {
-		panic(err)
-	}
-
-	// cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer cli.Close()
-	//
-	// reader, err := cli.ImagePull(ctx, "docker.io/library/alpine", image.PullOptions{})
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// io.Copy(os.Stdout, reader)
-	//
-	// resp, err := cli.ContainerCreate(ctx, &container.Config{
-	// 	Image: "alpine",
-	// 	Cmd:   []string{"echo", "hello world"},
-	// }, nil, nil, nil, "")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	//
-	// if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-	// 	panic(err)
-	// }
-	//
-	// out, err := cli.ContainerLogs(ctx, resp.ID, container.LogsOptions{ShowStdout: true})
-	// if err != nil {
-	// 	panic(err)
-	// }
-	//
-	// stdcopy.StdCopy(os.Stdout, os.Stderr, out)
-
-	// setup http endpoints
-	// http.HandleFunc("/create-match", get_create_match)
-	// http.HandleFunc("/join-match", get_join_match)
 
 	fmt.Println("[Server] Started")
 
 	// start http server
-	// http.ListenAndServe(":3333", nil)
 	HandleEndpoints()
 
 }
