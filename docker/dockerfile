@@ -1,0 +1,11 @@
+FROM alpine:latest
+
+RUN apk update
+RUN apk add --no-cache bash
+
+RUN mkdir /godot
+WORKDIR /godot
+
+COPY ./server ./
+
+CMD ./server

@@ -91,6 +91,9 @@ func main() {
 		}
 	}()
 
+	log.Println("[Server] starting container health check")
+	ContainerHealthCheck()
+
 	log.Println("[Server] Started")
 
 	c := make(chan os.Signal)

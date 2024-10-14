@@ -71,6 +71,7 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	json := fmt.Sprintf("{\"code\":\"%s\"}\n", code)
 	w.WriteHeader(201)
 	w.Write([]byte(json))
+	log.Println("[Client] create match")
 }
 
 func JoinMatch(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +95,7 @@ func JoinMatch(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	w.Write([]byte("")) // TODO: do i need to respond with anything?
+	log.Println("[Client] join match")
 }
 
 func LeaveMatch(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +108,7 @@ func LeaveMatch(w http.ResponseWriter, r *http.Request) {
 	if val, ok := container_map[code_map[code]]; ok {
 		val.num_players -= 1
 		if val.num_players == 0 {
+			log.Println("[Client] last player left removing container")
 			StopContainer(code_map[code])
 			delete(code_map, code)
 			RemoveMatch(code)
@@ -113,6 +116,7 @@ func LeaveMatch(w http.ResponseWriter, r *http.Request) {
 		}
 		container_map[code_map[code]] = val
 	}
+	log.Println("[Client] leave match")
 }
 
 func GetMatches(w http.ResponseWriter, r *http.Request) {
@@ -125,8 +129,11 @@ func GetMatches(w http.ResponseWriter, r *http.Request) {
 		log.Println("[Server] failed to serialize json")
 		return
 	}
+	json = append(json, '\n')
 
+	w.WriteHeader(200)
 	w.Write(json)
+	log.Println("[Client] get matches")
 }
 
 func HandleEndpoints() {
