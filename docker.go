@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"io"
+	"log"
 	"net"
 	"os"
 
@@ -29,7 +30,9 @@ type container_data struct {
 var container_map = make(map[string]container_data)
 
 func StartContainer(max_players int, private bool) (string, error) {
+	log.Println("[Server] starting container")
 	if num_containers >= MAX_CONTAINERS {
+		log.Println("[Server] Failed to start container: at max capacity. ")
 		return "", errors.New("max containers")
 	}
 
@@ -41,14 +44,14 @@ func StartContainer(max_players int, private bool) (string, error) {
 		AutoRemove: true,
 	}, nil, nil, "")
 	if err != nil {
-		// fmt.Fprintln(os.Stderr, "[Server] ERROR: failed to create container")
-		// fmt.Fprintln(os.Stderr, err)
+		log.Println("[Server] ERROR: failed to create container")
+		log.Println(err)
 		return "", err
 	}
 
 	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		// fmt.Fprintln(os.Stderr, "[Server] ERROR: failed to start container")
-		// fmt.Fprintln(os.Stderr, err)
+		log.Println("[Server] ERROR: failed to start container")
+		log.Println(err)
 		return "", err
 	}
 
@@ -72,11 +75,11 @@ func StartContainer(max_players int, private bool) (string, error) {
 func StopContainer(id string) error {
 	err := cli.ContainerStop(ctx, id, container.StopOptions{})
 	if err != nil {
-		// fmt.Fprintln(os.Stderr, "[Server] ERROR: failed to stop running container")
-		// fmt.Fprintln(os.Stderr, err)
+		log.Println("[Server] ERROR: failed to stop running container")
+		log.Println(err)
 		return err
 	}
-	// fmt.Println("[Server] Stopped running container")
+	log.Println("[Server] Stopped running container")
 	num_containers -= 1
 	delete(container_map, id)
 
@@ -84,12 +87,14 @@ func StopContainer(id string) error {
 }
 
 func ConnectDocker() error {
+	log.Println("[Server] connecting to docker")
 	var err error
 	cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		panic(err)
 	}
 
+	// TODO: check if image exists
 	// pull image
 	out, err := cli.ImagePull(ctx, IMAGE, image.PullOptions{})
 	if err != nil {
@@ -98,11 +103,14 @@ func ConnectDocker() error {
 	defer out.Close()
 	io.Copy(os.Stdout, out)
 
+	log.Println("[Server] successfuly connected to docker")
 	return nil
 }
 
 func ContainerHealthCheck() {
+	go func() {
 
+	}()
 }
 
 func CleanupDocker() error {

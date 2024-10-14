@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -46,7 +48,7 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	max_players, err := strconv.Atoi(CheckParam(w, r, "max_players"))
 	private, err := strconv.ParseBool(CheckParam(w, r, "private"))
 	if err != nil {
-		http.Error(w, "Incorrect query parameters", http.StatusUnprocessableEntity)
+		return
 	}
 
 	id, err := StartContainer(max_players, private)
@@ -64,8 +66,10 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 		code = GenerateCode()
 	}
 	code_map[code] = id
+	AddMatch(code, max_players, private)
 
 	json := fmt.Sprintf("{\"code\":\"%s\"}\n", code)
+	w.WriteHeader(201)
 	w.Write([]byte(json))
 }
 
@@ -87,6 +91,9 @@ func JoinMatch(w http.ResponseWriter, r *http.Request) {
 		val.num_players += 1
 		container_map[code_map[code]] = val
 	}
+
+	w.WriteHeader(200)
+	w.Write([]byte("")) // TODO: do i need to respond with anything?
 }
 
 func LeaveMatch(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +108,7 @@ func LeaveMatch(w http.ResponseWriter, r *http.Request) {
 		if val.num_players == 0 {
 			StopContainer(code_map[code])
 			delete(code_map, code)
+			RemoveMatch(code)
 			return
 		}
 		container_map[code_map[code]] = val
@@ -111,6 +119,14 @@ func GetMatches(w http.ResponseWriter, r *http.Request) {
 	if !CompareMethod(w, r.Method, http.MethodGet) {
 		return
 	}
+
+	json, err := json.Marshal(matches)
+	if err != nil {
+		log.Println("[Server] failed to serialize json")
+		return
+	}
+
+	w.Write(json)
 }
 
 func HandleEndpoints() {
