@@ -1,11 +1,12 @@
-FROM alpine:latest
+FROM ubuntu:latest
 
-RUN apk update
-RUN apk add --no-cache bash
+# RUN apk update
+# RUN apk add --no-cache bash
+# RUN apk add --no-cache gcompat
 
-RUN mkdir /godot
+RUN mkdir godot
 WORKDIR /godot
 
-COPY ./server ./
+COPY ./server /godot/server
 
 CMD ./server

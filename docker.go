@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	// "fmt"
+
 	// "io"
 	"log"
 	"math"
@@ -76,7 +78,15 @@ func StartContainer(max_players int, private bool) (string, error) {
 	}
 	ip := net.ParseIP(json.NetworkSettings.IPAddress)
 
-	conn, err := net.DialTimeout("tcp", ip.String(), 30*time.Second)
+	// TODO: container should be the server and container should call back when ready
+	time.Sleep(5 * time.Second)
+	conn, err := net.DialTimeout("tcp", ip.String()+":9001", 30*time.Second)
+	if err != nil {
+		log.Println("[Container] failed to connect to container")
+		log.Println(err)
+		StopContainer(resp.ID)
+		return "", err
+	}
 
 	container_map[resp.ID] = container_data{
 		ip:          ip,
@@ -133,10 +143,10 @@ func ContainerHealthCheck() {
 		start := time.Now()
 		for {
 			elapsed := time.Since(start)
-			max := math.Max((30*time.Second - elapsed).Seconds(), 0)
+			max := math.Max((1*time.Minute - elapsed).Seconds(), 0)
 			time.Sleep(time.Duration(max * float64(time.Second)))
 
-			log.Println("[Server] running healthcheck")
+			// log.Println("[Server] running healthcheck") // maybe remove? cluttering logs
 			start = time.Now()
 			for k, v := range container_map {
 				v.conn.Write([]byte("status?\n"))
