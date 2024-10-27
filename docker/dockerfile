@@ -4,9 +4,12 @@ FROM ubuntu:latest
 # RUN apk add --no-cache bash
 # RUN apk add --no-cache gcompat
 
-RUN mkdir godot
-WORKDIR /godot
+RUN mkdir /home/server
+WORKDIR /home/server
 
-COPY ./server /godot/server
+COPY ./server /home/server/server
 
-CMD ./server
+EXPOSE 9000
+# EXPOSE 9001
+
+CMD ["/home/server/server"]

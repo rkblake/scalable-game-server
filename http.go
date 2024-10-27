@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	// "strings"
 )
 
 const letters = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -34,7 +35,7 @@ func CompareMethod(w http.ResponseWriter, method1 string, method2 string) bool {
 func CheckParam(w http.ResponseWriter, r *http.Request, param string) string {
 	value := r.URL.Query().Get(param)
 	if value == "" {
-		http.Error(w, "Incorrect query parameters", http.StatusUnauthorized)
+		http.Error(w, "Incorrect query parameters", http.StatusBadRequest)
 		return ""
 	}
 	return value
@@ -45,9 +46,20 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	max_players, err := strconv.Atoi(CheckParam(w, r, "max_players"))
-	private, err := strconv.ParseBool(CheckParam(w, r, "private"))
+	max_players_str := CheckParam(w, r, "max_players")
+	if max_players_str == "" {
+		log.Println("missing max_players")
+		return
+	}
+	private_str := CheckParam(w, r, "private")
+	if private_str == "" {
+		log.Println("missing private")
+		return
+	}
+	max_players, err := strconv.Atoi(max_players_str)
+	private, err := strconv.ParseBool(private_str)
 	if err != nil {
+		http.Error(w, "Incorrect query parameters", http.StatusBadRequest)
 		return
 	}
 
@@ -58,7 +70,8 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := strings.Split(r.RemoteAddr, ":")[0]
-	AddForwardRule(ip, id)
+	// AddForwardRule(ip, id)
+	proxy.AddForwardRule(ip, container_map[id].ip.String())
 
 	code := GenerateCode()
 
@@ -69,9 +82,9 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	AddMatch(code, max_players, private)
 
 	json := fmt.Sprintf("{\"code\":\"%s\"}\n", code)
-	w.WriteHeader(201)
+	w.WriteHeader(200)
 	w.Write([]byte(json))
-	log.Println("[Client] create match")
+	log.Println("[Client] created match")
 }
 
 func JoinMatch(w http.ResponseWriter, r *http.Request) {
@@ -85,8 +98,8 @@ func JoinMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := strings.Split(r.RemoteAddr, ":")[0]
-	AddForwardRule(ip, code_map[code])
+	// ip := strings.Split(r.RemoteAddr, ":")[0]
+	// AddForwardRule(ip, code_map[code])
 
 	if val, ok := container_map[code_map[code]]; ok {
 		val.num_players += 1
@@ -95,7 +108,7 @@ func JoinMatch(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	w.Write([]byte("")) // TODO: do i need to respond with anything?
-	log.Println("[Client] join match")
+	log.Println("[Client] joined match")
 }
 
 func LeaveMatch(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +129,9 @@ func LeaveMatch(w http.ResponseWriter, r *http.Request) {
 		}
 		container_map[code_map[code]] = val
 	}
-	log.Println("[Client] leave match")
+	w.WriteHeader(200)
+	w.Write([]byte(""))
+	log.Println("[Client] left match")
 }
 
 func GetMatches(w http.ResponseWriter, r *http.Request) {

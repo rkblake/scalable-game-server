@@ -1,147 +1,142 @@
 package main
 
 import (
-	// "bufio"
+	"fmt"
 	"io"
 	"net"
 	"sync"
 
-	// "strings"
-
-	// "strings"
 	"log"
 )
 
-type container_conn struct {
-	tcp net.Conn
-	udp *net.UDPAddr
-}
-
-var ip_map = make(map[*net.IP]container_conn)
-
-// func ForwardTCP() error {
-// 	// start tcp and upd listeners
-// 	tcp_addr, err := net.ResolveTCPAddr("tcp4", "127.0.0.1:9000")
-// 	if err != nil {
-// 		log.Println("[Server] failed to resolve address")
-// 		panic(err)
-// 	}
-// 	tcp_listener, err := net.ListenTCP("tcp", tcp_addr)
-// 	if err != nil {
-// 		log.Printf("[Server] failed to listen on %s", tcp_addr)
-// 		panic(err)
-// 	}
-//
-// 	for {
-// 		conn, err := tcp_listener.Accept()
-// 		if err != nil {
-// 			log.Println("[Client] failed to accept connection")
-// 			log.Println(err)
-// 			return err
-// 		}
-// 		go func(conn net.Conn) {
-// 			for {
-// 				data, err := bufio.NewReader(conn).ReadBytes(byte(0))
-// 				if err != nil {
-// 					log.Println(err)
-// 					return
-// 				}
-// 				ip := net.ParseIP(strings.Split(conn.RemoteAddr().String(), ":")[0])
-// 				ip_map[&ip].tcp.Write(data)
-// 			}
-// 		}(conn)
-// 	}
-//
-// }
-//
-// func ForwardUDP() error {
-// 	udp_addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:9000")
-// 	if err != nil {
-// 		panic(err)
-// 	}
-//
-// 	conn, err := net.ListenUDP("udp", udp_addr)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-//
-// 	for {
-// 		var buf [1024]byte
-// 		_, addr, err := conn.ReadFromUDP(buf[0:])
-// 		if err != nil {
-// 			// fmt.Println(err)
-// 			return err
-// 		}
-// 		conn.WriteToUDP(buf[:0], ip_map[&addr.IP].udp)
-// 	}
-// }
-
-func AddForwardRule(ip string, id string) {
-	// parsed_ip := net.ParseIP(ip)
-	// ip_map[&parsed_ip] =  // TODO: start conn with container
-	log.Println("[Server] Adding forwarding rule")
-}
-
-func RemoveForwardRule(ip string) {
-	log.Println("[Server] Removing forwarding rule")
-}
-
 type Proxy struct {
-	addr  string
-	rules sync.Map
+	rules     sync.Map
+	udpConn   sync.Map
+	connMutex sync.Mutex
 }
 
-func (p *Proxy) ServeListener(l net.Listener) {
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Println("[Proxy] failed to accept connection")
-			log.Println(err)
-		}
+func (p *Proxy) AddForwardRule(src string, dst string) {
+	p.rules.Store(src, dst)
+	log.Printf("[Proxy] Adding forwarding rule: %s -> %s\n", src, dst)
+}
 
-		go p.handleConnection(conn)
+func (p *Proxy) RemoveForwardRule(src string) {
+	p.rules.Delete(src)
+	log.Printf("[Proxy] Removing forwarding rule for: %s\n", src)
+}
+
+func (p *Proxy) Start(srcAddr string) {
+	go p.startTcpListener(srcAddr)
+	p.startUdpListener(srcAddr)
+}
+
+func (p *Proxy) GetUdpConn(dstAddr string) (*net.UDPConn, error) {
+	if conn, ok := p.udpConn.Load(dstAddr); ok {
+		return conn.(*net.UDPConn), nil
+	}
+
+	p.connMutex.Lock()
+	defer p.connMutex.Unlock()
+
+	if conn, ok := p.udpConn.Load(dstAddr); ok {
+		return conn.(*net.UDPConn), nil
+	}
+
+	remoteAddr, err := net.ResolveUDPAddr("udp", dstAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve udp addr %s: %v", dstAddr, err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, remoteAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to udp %s: %v", dstAddr, err)
+	}
+
+	p.udpConn.Store(dstAddr, conn)
+	return conn, nil
+}
+
+func (p *Proxy) startTcpListener(srcAddr string) {
+	listener, err := net.Listen("tcp", srcAddr)
+	if err != nil {
+		log.Println("[Proxy] tcp listener error")
+		log.Println(err)
+		return
+	}
+	defer listener.Close()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Println("[Proxy] error accepting tcp connection")
+			log.Println(err)
+			continue
+		}
+		go p.handleTcpConnection(conn, srcAddr)
 	}
 }
 
-func (p *Proxy) handleConnection(c net.Conn) {
-	remoteAddr := c.RemoteAddr
+func (p *Proxy) startUdpListener(srcAddr string) {
+	conn, err := net.ListenPacket("udp", srcAddr)
+	if err != nil {
+		log.Println("[Proxy] failed to listen on udp")
+		log.Println(err)
+		return
+	}
+	defer conn.Close()
 
-	srvAddr, _ := p.rules.Load(remoteAddr)
+	buffer := make([]byte, 1500) // 1500 is default MTU
 
-	gameServerConn, err := net.Dial("tcp", srvAddr.(string))
+	for {
+		n, addr, err := conn.ReadFrom(buffer)
+		if err != nil {
+			log.Println("[Proxy] error reading udp packet") // can probably not log this
+			continue
+		}
+
+		go p.handleUdpConnection(buffer[:n], addr, srcAddr)
+	}
+}
+
+func (p *Proxy) handleTcpConnection(c net.Conn, srcAddr string) {
+	defer c.Close()
+
+	dstAddr, ok := p.rules.Load(srcAddr)
+	if !ok {
+		log.Printf("[Proxy] No rule found for %s\n", srcAddr)
+		return
+	}
+
+	dstConn, err := net.Dial("tcp", dstAddr.(string))
 	if err != nil {
 		log.Println("[Proxy] failed to connect to container")
 		log.Println(err)
 		return
 	}
+	defer dstConn.Close()
 
-	// forward from client to server
-	go func() {
-		io.Copy(gameServerConn, c)
-
-		gameServerConn.Close()
-	}()
-
-	// forward from server to client
-	go func() {
-		for {
-			buf := make([]byte, 1024)
-			n, err := gameServerConn.Read(buf)
-			if err != nil {
-				return
-			}
-
-			if n > 0 {
-				c.Write(buf[:n])
-			}
-		}
-	}()
+	go io.Copy(dstConn, c)
+	io.Copy(c, dstConn)
 }
 
-func (p *Proxy) addForwardRule(src string, dst string) {
-	p.rules.Store(src, dst)
-}
+func (p *Proxy) handleUdpConnection(buffer []byte, srcAddr net.Addr, ruleSrcAddr string) {
+	dstAddr, ok := p.rules.Load(ruleSrcAddr)
+	if !ok {
+		log.Printf("[Proxy] no rule found for %s\n", ruleSrcAddr)
+		return
+	}
 
-func (p *Proxy) removeForwardRule(src string) {
-	p.rules.Delete(src)
+	conn, err := p.GetUdpConn(dstAddr.(string))
+	if err != nil {
+		log.Println("[Proxy] failed getting udp conn")
+		log.Println(err)
+		return
+	}
+
+	_, err = conn.Write(buffer)
+	if err != nil {
+		log.Println("[Proxy] failed to forward packets")
+		log.Println(err)
+		return
+	}
 }

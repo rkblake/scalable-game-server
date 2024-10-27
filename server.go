@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"log"
+	// "net"
 	"os"
 	"os/signal"
 	"syscall"
 )
 
 var ctx = context.Background()
+var proxy = Proxy{}
 
 func main() {
 	log.Println("[Server] Starting...")
@@ -21,26 +23,21 @@ func main() {
 
 	// forward packets
 	log.Println("[Server] Starting reverse proxy")
-	go func() {
-		err := ForwardTCP()
-		if err != nil {
-			log.Println(err)
-		}
-	}()
-
-	go func() {
-		err := ForwardUDP()
-		if err != nil {
-			log.Println(err)
-		}
-	}()
+	// proxy := Proxy{}
+	// l, err := net.Listen("tcp", "127.0.0.1:9000")
+	// if err != nil {
+	// panic(err)
+	// }
+	go proxy.Start("0.0.0.0:9000")
 
 	log.Println("[Server] starting container health check")
 	ContainerHealthCheck()
 
-	log.Println("[Server] Started")
+	// start http server
+	log.Println("[Server] starting HTTP listener")
+	go HandleEndpoints()
 
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
@@ -50,7 +47,7 @@ func main() {
 		os.Exit(0)
 	}()
 
-	// start http server
-	HandleEndpoints()
+	log.Println("[Server] Started")
 
+	select {}
 }

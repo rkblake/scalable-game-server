@@ -3,7 +3,8 @@ package main
 import (
 	"bytes"
 	"errors"
-	// "fmt"
+	"fmt"
+	"io"
 
 	// "io"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	// "github.com/docker/docker/pkg/stdcopy"
 	// "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 )
@@ -41,9 +43,23 @@ type container_data struct {
 	in_progress bool
 	status      Status
 	conn        net.Conn
+	logs        *io.ReadCloser
 }
 
 var container_map = make(map[string]container_data)
+
+func GetFreeListener() (*net.TCPListener, error) {
+	var a *net.TCPAddr
+	var err error
+	// TODO: is it safe to listen on any inet?
+	if a, err = net.ResolveTCPAddr("tcp", "0.0.0.0:0"); err == nil {
+		var l *net.TCPListener
+		if l, err = net.ListenTCP("tcp", a); err == nil {
+			return l, nil
+		}
+	}
+	return nil, err
+}
 
 func StartContainer(max_players int, private bool) (string, error) {
 	log.Println("[Server] starting container")
@@ -52,12 +68,25 @@ func StartContainer(max_players int, private bool) (string, error) {
 		return "", errors.New("max containers")
 	}
 
+	// find empty port for health check
+	listener, err := GetFreeListener()
+	if err != nil {
+		log.Println("[Server] failed to reserve port")
+		log.Println(err)
+		return "", err
+	}
+	defer listener.Close()
+	port_env := []string{fmt.Sprintf("HEALTH_PORT=%d", listener.Addr().(*net.TCPAddr).Port)}
+
+	// create container passing in health check port as env var
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: IMAGE,
+		Env:   port_env,
 		// Cmd:   []string{"sleep", "30"},
 		// Tty:   false,
 	}, &container.HostConfig{
-		AutoRemove: true,
+		AutoRemove:  false,
+		NetworkMode: "host",
 	}, nil, nil, "")
 	if err != nil {
 		log.Println("[Server] ERROR: failed to create container")
@@ -65,11 +94,18 @@ func StartContainer(max_players int, private bool) (string, error) {
 		return "", err
 	}
 
+	// start container
 	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		log.Println("[Server] ERROR: failed to start container")
 		log.Println(err)
 		return "", err
 	}
+
+	// logs, err := cli.ContainerLogs(ctx, resp.ID, container.LogsOptions{
+	// 	ShowStdout: true,
+	// 	ShowStderr: true,
+	// })
+	// stdcopy.StdCopy(os.Stdout, os.Stderr, logs)
 
 	// get containers ip address
 	json, err := cli.ContainerInspect(ctx, resp.ID)
@@ -78,15 +114,16 @@ func StartContainer(max_players int, private bool) (string, error) {
 	}
 	ip := net.ParseIP(json.NetworkSettings.IPAddress)
 
-	// TODO: container should be the server and container should call back when ready
-	time.Sleep(5 * time.Second)
-	conn, err := net.DialTimeout("tcp", ip.String()+":9001", 30*time.Second)
+	// accept healthcheck listener
+	listener.SetDeadline(time.Now().Add(5 * time.Second))
+	conn, err := listener.Accept()
 	if err != nil {
-		log.Println("[Container] failed to connect to container")
+		log.Println("[Server] failed to accept health check connection from container")
 		log.Println(err)
 		StopContainer(resp.ID)
 		return "", err
 	}
+	// log.Printf("[Server] accepted health check from container %s\n", resp.ID)
 
 	container_map[resp.ID] = container_data{
 		ip:          ip,
@@ -95,6 +132,7 @@ func StartContainer(max_players int, private bool) (string, error) {
 		private:     private,
 		in_progress: false,
 		conn:        conn,
+		// logs:        &logs,
 	}
 
 	num_containers += 1
@@ -110,6 +148,7 @@ func StopContainer(id string) error {
 	}
 	log.Println("[Server] Stopped running container")
 	num_containers -= 1
+	(*container_map[id].logs).Close()
 	delete(container_map, id)
 
 	return nil
@@ -149,9 +188,9 @@ func ContainerHealthCheck() {
 			// log.Println("[Server] running healthcheck") // maybe remove? cluttering logs
 			start = time.Now()
 			for k, v := range container_map {
-				v.conn.Write([]byte("status?\n"))
+				v.conn.Write([]byte("keepalive\n"))
 
-				reply := make([]byte, 16)
+				reply := make([]byte, 32)
 
 				v.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 				_, err := v.conn.Read(reply)
@@ -163,7 +202,7 @@ func ContainerHealthCheck() {
 				}
 				if bytes.Equal(reply, []byte("lobby")) {
 					v.status = lobby
-				} else if bytes.Equal(reply, []byte("game")) {
+				} else if bytes.Equal(reply, []byte("in_game")) {
 					v.status = in_game
 				} else if bytes.Equal(reply, []byte("finished")) {
 					log.Println("[Container] returned status: finished")

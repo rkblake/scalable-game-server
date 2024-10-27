@@ -1,0 +1,4 @@
+- [ ] write container's stderr to file on host
+- [ ] add database support
+- [ ] add matchmaking support
+- [ ] get docker image, max containers, and porst from env var
