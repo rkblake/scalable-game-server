@@ -28,7 +28,8 @@ func main() {
 	// if err != nil {
 	// panic(err)
 	// }
-	go proxy.Start("0.0.0.0:9000")
+	cancelCtx, cancelFunc := context.WithCancel(ctx)
+	go proxy.Start(cancelCtx, "0.0.0.0:9000")
 
 	log.Println("[Server] starting container health check")
 	ContainerHealthCheck()
@@ -43,6 +44,7 @@ func main() {
 		<-c
 		log.Println("[Server] Received SIGINT. cleaning up")
 		CleanupDocker()
+		cancelFunc()
 		log.Println("[Server] Finished cleanup. shutting down")
 		os.Exit(0)
 	}()

@@ -70,7 +70,6 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := strings.Split(r.RemoteAddr, ":")[0]
-	// AddForwardRule(ip, id)
 	proxy.AddForwardRule(ip, container_map[id].ip.String())
 
 	code := GenerateCode()

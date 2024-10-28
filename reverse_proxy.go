@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
+	"time"
 
 	"log"
 )
@@ -25,20 +28,30 @@ func (p *Proxy) RemoveForwardRule(src string) {
 	log.Printf("[Proxy] Removing forwarding rule for: %s\n", src)
 }
 
-func (p *Proxy) Start(srcAddr string) {
-	go p.startTcpListener(srcAddr)
-	p.startUdpListener(srcAddr)
+func (p *Proxy) Start(ctx context.Context, srcAddr string) {
+	go p.startTcpListener(ctx, srcAddr)
+	p.startUdpListener(ctx, srcAddr)
+
+	// cleanup
+	p.connMutex.Lock()
+	defer p.connMutex.Unlock()
+	// m := map[string]interface{}{}
+	p.udpConn.Range(func(key, value interface{}) bool {
+		value.(*net.UDPConn).Close()
+		return true
+	})
 }
 
 func (p *Proxy) GetUdpConn(dstAddr string) (*net.UDPConn, error) {
-	if conn, ok := p.udpConn.Load(dstAddr); ok {
+	srcIp := strings.Split(dstAddr, ":")[0]
+	if conn, ok := p.udpConn.Load(srcIp); ok {
 		return conn.(*net.UDPConn), nil
 	}
 
 	p.connMutex.Lock()
 	defer p.connMutex.Unlock()
 
-	if conn, ok := p.udpConn.Load(dstAddr); ok {
+	if conn, ok := p.udpConn.Load(srcIp); ok {
 		return conn.(*net.UDPConn), nil
 	}
 
@@ -56,8 +69,9 @@ func (p *Proxy) GetUdpConn(dstAddr string) (*net.UDPConn, error) {
 	return conn, nil
 }
 
-func (p *Proxy) startTcpListener(srcAddr string) {
-	listener, err := net.Listen("tcp", srcAddr)
+func (p *Proxy) startTcpListener(ctx context.Context, srcAddr string) {
+	lAddr, err := net.ResolveTCPAddr("tcp", srcAddr)
+	listener, err := net.ListenTCP("tcp", lAddr)
 	if err != nil {
 		log.Println("[Proxy] tcp listener error")
 		log.Println(err)
@@ -66,44 +80,30 @@ func (p *Proxy) startTcpListener(srcAddr string) {
 	defer listener.Close()
 
 	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Println("[Proxy] error accepting tcp connection")
-			log.Println(err)
-			continue
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			listener.SetDeadline(time.Now().Add(time.Second))
+			conn, err := listener.Accept()
+			if err != nil {
+				if !err.(*net.OpError).Timeout() {
+					log.Println("[Proxy] error accepting tcp connection")
+					log.Println(err)
+				}
+				continue
+			}
+			go p.handleTcpConnection(conn)
 		}
-		go p.handleTcpConnection(conn, srcAddr)
 	}
 }
 
-func (p *Proxy) startUdpListener(srcAddr string) {
-	conn, err := net.ListenPacket("udp", srcAddr)
-	if err != nil {
-		log.Println("[Proxy] failed to listen on udp")
-		log.Println(err)
-		return
-	}
-	defer conn.Close()
+func (p *Proxy) handleTcpConnection(src net.Conn) {
+	defer src.Close()
 
-	buffer := make([]byte, 1500) // 1500 is default MTU
-
-	for {
-		n, addr, err := conn.ReadFrom(buffer)
-		if err != nil {
-			log.Println("[Proxy] error reading udp packet") // can probably not log this
-			continue
-		}
-
-		go p.handleUdpConnection(buffer[:n], addr, srcAddr)
-	}
-}
-
-func (p *Proxy) handleTcpConnection(c net.Conn, srcAddr string) {
-	defer c.Close()
-
-	dstAddr, ok := p.rules.Load(srcAddr)
+	dstAddr, ok := p.rules.Load(strings.Split(src.RemoteAddr().String(), ":")[0])
 	if !ok {
-		log.Printf("[Proxy] No rule found for %s\n", srcAddr)
+		log.Printf("[Proxy] No rule found for %s\n", src.RemoteAddr().String())
 		return
 	}
 
@@ -115,14 +115,45 @@ func (p *Proxy) handleTcpConnection(c net.Conn, srcAddr string) {
 	}
 	defer dstConn.Close()
 
-	go io.Copy(dstConn, c)
-	io.Copy(c, dstConn)
+	go io.Copy(dstConn, src)
+	io.Copy(src, dstConn)
 }
 
-func (p *Proxy) handleUdpConnection(buffer []byte, srcAddr net.Addr, ruleSrcAddr string) {
-	dstAddr, ok := p.rules.Load(ruleSrcAddr)
+func (p *Proxy) startUdpListener(ctx context.Context, srcAddr string) {
+	conn, err := net.ListenPacket("udp", srcAddr)
+	if err != nil {
+		log.Println("[Proxy] failed to listen on udp")
+		log.Println(err)
+		return
+	}
+	defer conn.Close()
+
+	buffer := make([]byte, 1500) // 1500 is default MTU
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			conn.SetDeadline(time.Now().Add(time.Second))
+			n, addr, err := conn.ReadFrom(buffer)
+			if err != nil {
+				if !err.(*net.OpError).Timeout() {
+					log.Println("[Proxy] error reading udp packet") // can probably not log this
+					log.Println(err)
+				}
+				continue
+			}
+
+			go p.handleUdpConnection(buffer[:n], addr)
+		}
+	}
+}
+
+func (p *Proxy) handleUdpConnection(buffer []byte, srcAddr net.Addr) {
+	dstAddr, ok := p.rules.Load(strings.Split(srcAddr.String(), ":")[0])
 	if !ok {
-		log.Printf("[Proxy] no rule found for %s\n", ruleSrcAddr)
+		log.Printf("[Proxy] no rule found for %s\n", srcAddr.String())
 		return
 	}
 

@@ -85,8 +85,9 @@ func StartContainer(max_players int, private bool) (string, error) {
 		// Cmd:   []string{"sleep", "30"},
 		// Tty:   false,
 	}, &container.HostConfig{
-		AutoRemove:  false,
-		NetworkMode: "host",
+		AutoRemove:  true,
+		NetworkMode: "bridge",
+		ExtraHosts:  []string{"host.docker.internal:host-gateway"},
 	}, nil, nil, "")
 	if err != nil {
 		log.Println("[Server] ERROR: failed to create container")
@@ -108,11 +109,11 @@ func StartContainer(max_players int, private bool) (string, error) {
 	// stdcopy.StdCopy(os.Stdout, os.Stderr, logs)
 
 	// get containers ip address
-	json, err := cli.ContainerInspect(ctx, resp.ID)
+	info, err := cli.ContainerInspect(ctx, resp.ID)
 	if err != nil {
 		return "", err
 	}
-	ip := net.ParseIP(json.NetworkSettings.IPAddress)
+	ip := net.ParseIP(info.NetworkSettings.Networks["bridge"].IPAddress)
 
 	// accept healthcheck listener
 	listener.SetDeadline(time.Now().Add(5 * time.Second))
