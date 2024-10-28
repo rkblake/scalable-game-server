@@ -9,7 +9,8 @@ WORKDIR /home/server
 
 COPY ./server /home/server/server
 
-EXPOSE 9000
+EXPOSE 9000/tcp
+EXPOSE 9000/udp
 # EXPOSE 9001
 
 CMD ["/home/server/server"]

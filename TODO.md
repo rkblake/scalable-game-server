@@ -2,3 +2,4 @@
 - [ ] add database support
 - [ ] add matchmaking support
 - [ ] get docker image, max containers, and porst from env var
+- [ ] forward ports (X.X.X.X:PPPP -> Y.Y.Y.Y:PPPP) only translate ip not port

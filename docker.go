@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 
 	// "io"
 	"log"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	// "github.com/docker/go-connections/nat"
 	// "github.com/docker/docker/pkg/stdcopy"
 	// "github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
@@ -43,7 +43,7 @@ type container_data struct {
 	in_progress bool
 	status      Status
 	conn        net.Conn
-	logs        *io.ReadCloser
+	// logs        *io.ReadCloser
 }
 
 var container_map = make(map[string]container_data)
@@ -78,16 +78,26 @@ func StartContainer(max_players int, private bool) (string, error) {
 	defer listener.Close()
 	port_env := []string{fmt.Sprintf("HEALTH_PORT=%d", listener.Addr().(*net.TCPAddr).Port)}
 
+	// portBinding := nat.PortBinding{
+	// 	HostIP:   "0.0.0.0",
+	// 	HostPort: "9000",
+	// }
+
 	// create container passing in health check port as env var
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: IMAGE,
 		Env:   port_env,
+		// ExposedPorts: nat.PortSet{"9000/tcp": {}},
 		// Cmd:   []string{"sleep", "30"},
 		// Tty:   false,
 	}, &container.HostConfig{
 		AutoRemove:  true,
 		NetworkMode: "bridge",
 		ExtraHosts:  []string{"host.docker.internal:host-gateway"},
+		Resources: container.Resources{
+			CPUPeriod: 100_000, // default
+			CPUQuota:  10_000,  // 10%
+		},
 	}, nil, nil, "")
 	if err != nil {
 		log.Println("[Server] ERROR: failed to create container")
@@ -149,7 +159,7 @@ func StopContainer(id string) error {
 	}
 	log.Println("[Server] Stopped running container")
 	num_containers -= 1
-	(*container_map[id].logs).Close()
+	// (*container_map[id].logs).Close()
 	delete(container_map, id)
 
 	return nil

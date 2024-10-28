@@ -70,7 +70,7 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := strings.Split(r.RemoteAddr, ":")[0]
-	proxy.AddForwardRule(ip, container_map[id].ip.String())
+	proxy.AddForwardRule(ip, container_map[id].ip.String()+":9000")
 
 	code := GenerateCode()
 
@@ -83,7 +83,7 @@ func CreateMatch(w http.ResponseWriter, r *http.Request) {
 	json := fmt.Sprintf("{\"code\":\"%s\"}\n", code)
 	w.WriteHeader(200)
 	w.Write([]byte(json))
-	log.Println("[Client] created match")
+	log.Printf("[Client] created match: %s\n", code)
 }
 
 func JoinMatch(w http.ResponseWriter, r *http.Request) {
@@ -97,8 +97,8 @@ func JoinMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ip := strings.Split(r.RemoteAddr, ":")[0]
-	// AddForwardRule(ip, code_map[code])
+	ip := strings.Split(r.RemoteAddr, ":")[0]
+	proxy.AddForwardRule(ip, container_map[code_map[code]].ip.String()+":9000")
 
 	if val, ok := container_map[code_map[code]]; ok {
 		val.num_players += 1
@@ -107,7 +107,7 @@ func JoinMatch(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	w.Write([]byte("")) // TODO: do i need to respond with anything?
-	log.Println("[Client] joined match")
+	log.Printf("[Client] joined match: %s\n", code)
 }
 
 func LeaveMatch(w http.ResponseWriter, r *http.Request) {
@@ -116,9 +116,11 @@ func LeaveMatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code := r.URL.Query().Get("code")
+	ip := strings.Split(r.RemoteAddr, ":")[0]
 
 	if val, ok := container_map[code_map[code]]; ok {
 		val.num_players -= 1
+		proxy.RemoveForwardRule(ip)
 		if val.num_players == 0 {
 			log.Println("[Client] last player left removing container")
 			StopContainer(code_map[code])
@@ -130,7 +132,7 @@ func LeaveMatch(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(200)
 	w.Write([]byte(""))
-	log.Println("[Client] left match")
+	log.Printf("[Client] left match: %s\n", code)
 }
 
 func GetMatches(w http.ResponseWriter, r *http.Request) {

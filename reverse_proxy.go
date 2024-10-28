@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+
 	"sync"
 	"time"
 
@@ -19,8 +20,9 @@ type Proxy struct {
 }
 
 func (p *Proxy) AddForwardRule(src string, dst string) {
-	p.rules.Store(src, dst)
-	log.Printf("[Proxy] Adding forwarding rule: %s -> %s\n", src, dst)
+	srcIp := strings.Split(src, ":")[0]
+	p.rules.Store(srcIp, dst)
+	log.Printf("[Proxy] Adding forwarding rule: %s -> %s\n", srcIp, dst)
 }
 
 func (p *Proxy) RemoveForwardRule(src string) {
@@ -43,15 +45,15 @@ func (p *Proxy) Start(ctx context.Context, srcAddr string) {
 }
 
 func (p *Proxy) GetUdpConn(dstAddr string) (*net.UDPConn, error) {
-	srcIp := strings.Split(dstAddr, ":")[0]
-	if conn, ok := p.udpConn.Load(srcIp); ok {
+	// srcIp := strings.Split(dstAddr, ":")[0]
+	if conn, ok := p.udpConn.Load(dstAddr); ok {
 		return conn.(*net.UDPConn), nil
 	}
 
 	p.connMutex.Lock()
 	defer p.connMutex.Unlock()
 
-	if conn, ok := p.udpConn.Load(srcIp); ok {
+	if conn, ok := p.udpConn.Load(dstAddr); ok {
 		return conn.(*net.UDPConn), nil
 	}
 
@@ -101,9 +103,10 @@ func (p *Proxy) startTcpListener(ctx context.Context, srcAddr string) {
 func (p *Proxy) handleTcpConnection(src net.Conn) {
 	defer src.Close()
 
-	dstAddr, ok := p.rules.Load(strings.Split(src.RemoteAddr().String(), ":")[0])
+	srcIp := strings.Split(src.RemoteAddr().String(), ":")[0]
+	dstAddr, ok := p.rules.Load(srcIp)
 	if !ok {
-		log.Printf("[Proxy] No rule found for %s\n", src.RemoteAddr().String())
+		log.Printf("[Proxy] No tcp rule found for %s\n", srcIp)
 		return
 	}
 
@@ -152,6 +155,7 @@ func (p *Proxy) startUdpListener(ctx context.Context, srcAddr string) {
 
 func (p *Proxy) handleUdpConnection(buffer []byte, srcAddr net.Addr) {
 	dstAddr, ok := p.rules.Load(strings.Split(srcAddr.String(), ":")[0])
+	// dstAddr, ok := p.rules.Load(srcAddr.String())
 	if !ok {
 		log.Printf("[Proxy] no rule found for %s\n", srcAddr.String())
 		return
@@ -166,7 +170,7 @@ func (p *Proxy) handleUdpConnection(buffer []byte, srcAddr net.Addr) {
 
 	_, err = conn.Write(buffer)
 	if err != nil {
-		log.Println("[Proxy] failed to forward packets")
+		log.Println("[Proxy] failed to forward udp packets")
 		log.Println(err)
 		return
 	}
